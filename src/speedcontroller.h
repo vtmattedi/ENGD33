@@ -68,3 +68,7 @@ void setDirectionVector(struct Vect2 dir);
 struct Vect2 getDirectionVector();
 //Option 2
 extern QueueHandle_t xDirectionVectorQueue;
+
+// Expose Tasks handles???
+extern TaskHandle_t xSpeedControllerTaskHandle;
+extern TaskHandle_t xTorqueControllerTaskHandle;
