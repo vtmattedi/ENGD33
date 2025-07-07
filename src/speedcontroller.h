@@ -45,10 +45,8 @@ struct Vect2{
 struct PID_DATA
 {
     float last_error;
+    float last_output;
     float integral;
-    float derivative;
-    float setpoint;
-    float output;
 };
 
 

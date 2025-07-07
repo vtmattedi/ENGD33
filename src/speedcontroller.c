@@ -17,13 +17,22 @@ float Motors_PID_Constants[3][3] = {
 };
 
 int MotorsPWM[3] = {WHEEL_A_PWM_CHANNEL, WHEEL_B_PWM_CHANNEL, WHEEL_C_PWM_CHANNEL};
-
+int MotorsCurrentADC[3] = {WHEEL_A_CURRENT_ADC_CHANNEL, WHEEL_B_CURRENT_ADC_CHANNEL, WHEEL_C_CURRENT_ADC_CHANNEL};
 void setPWM(int channel, int value)
 {
     // This function would typically set the PWM value for a specific channel.
     // In a real implementation, you would use the appropriate HAL functions.
 
     printf("Setting PWM channel %d to value %d\n", channel, value);
+}
+
+uint16_t readADC(int channel)
+{
+    // This function would typically read the ADC value for a specific channel.
+    // In a real implementation, you would use the appropriate HAL functions.
+
+    printf("Reading ADC channel %d\n", channel);
+    return 0; // Placeholder return value
 }
 
 void xTaskSpeedController(void *pvParameters)
@@ -33,12 +42,16 @@ void xTaskSpeedController(void *pvParameters)
     {
         for (int i = 0; i < 3; i++)
         {
+            uint16_t MotorsCurrentADC = readADC(i); // Read current sensor value
+            PIDs[i].last_error = MotorsCurrentADC - PIDs[i].last_output; // Calculate error
             float pid_value = 0;
-            for (int j = 0; j < 3; j++)
-            {
-                pid_value += Motors_PID_Constants[i][j] * PIDs[i].output;
-            }
+            pid_value += Motors_PID_Constants[i][0] * PIDs[i].last_error;    // Proportional
+            pid_value += Motors_PID_Constants[i][1] * PIDs[i].integral;      // Integral
+            pid_value += Motors_PID_Constants[i][2] * (PIDs[i].last_output - PIDs[i].last_error); // Derivative
             setPWM(MotorsPWM[i], (int)pid_value);
+            PIDs[i].last_output = pid_value;
+            PIDs[i].integral += PIDs[i].last_error; // Update integral term
+            PIDs[i].last_error = 0; // Reset last error for next iteration // Read current error from sensors
         }
         // Simulate some processing
         vTaskDelay(pdMS_TO_TICKS(1000)); // Delay for 1 second
