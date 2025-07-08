@@ -2,8 +2,10 @@
 #include <stdlib.h>
 #include "speedcontroller.h"
 
-int main(void) {
-    // This is a simple C program that does nothing.
-    setupSpeedControllers();
-    return 0;
+void main(void)
+{
+    setup();
+    INIT_controller();
+    xTaskTorqueController
+    xCreateTask(loop, "Loop", 1000, NULL, 1, NULL);
 }
