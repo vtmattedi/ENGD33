@@ -2,7 +2,7 @@
 #ifndef SPEEDCONTROLLER_H
 #define SPEEDCONTROLLER_H
 
-// TODO: Verificar os includes
+// TODO: Verificar os includes no projeto CUBE IDE
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
