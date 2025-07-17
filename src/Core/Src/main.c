@@ -165,6 +165,12 @@ int main(void)
   /* USER CODE BEGIN RTOS_EVENTS */
   /* add events, ... */
   /* USER CODE END RTOS_EVENTS */
+  
+  /* GRUPO 4: SPEED & CURRENT CONTROLLER*/
+  /* INICIA AS NOSSAS TASKS */
+  SpeedController_Init();
+
+
 
   /* Start scheduler */
   osKernelStart();
