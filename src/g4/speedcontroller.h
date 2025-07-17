@@ -2,10 +2,12 @@
 #ifndef SPEEDCONTROLLER_H
 #define SPEEDCONTROLLER_H
 
+// TODO: Verificar os includes
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
 #include "semphr.h"
+#include "stm32f4xx_hal.h"
 
 #define WHEELS_COUNT 3
 #define WHEEL_A_INDEX 0
@@ -62,7 +64,7 @@
     PID_CONSTANTS_CURRENT_A = {0.1f, 0.01f, 0.001f} // Kp, Ki, Kd para corrente da roda A
     PID_CONSTANTS_CURRENT_B = {0.1f, 0.01f, 0.001f} // Kp, Ki, Kd para corrente da roda B
     PID_CONSTANTS_CURRENT_C = {0.1f, 0.01f, 0.001f} // Kp, Ki, Kd para corrente da roda C
-    
+
     PID_CONSTANTS_CURRENT = {PID_CONSTANTS_CURRENT_A, PID_CONSTANTS_CURRENT_B, PID_CONSTANTS_CURRENT_C}
 
     //Uso: PID_CONSTANTS_CURRENT[WHEEL_A_INDEX][Kp] = Kp para corrente da roda A
@@ -125,7 +127,7 @@ typedef struct
     e deve poder ser indexado como um vetor de 3 elementos
     Ver os indexes WHEEL_X_INDEX.
 */
-
+//TODO: Confirmar a estrutura de dados a ser recebido.
 #define SpeedType_t Vect3
 #define WheelSpeeds_t WheelSpeeds
 

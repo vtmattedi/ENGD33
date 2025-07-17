@@ -3,12 +3,17 @@
 #include "math.h"
 
 // --- Handles externos ---
-extern TIM_HandleTypeDef htim3; //
+extern TIM_HandleTypeDef htim3; 
 extern TIM_HandleTypeDef htim4;
 extern TIM_HandleTypeDef htim5;
 extern ADC_HandleTypeDef hadc1;
 extern TIM_HandleTypeDef htim1;
 
+// TODO: A Nivel de projeto, Temos que confirmar os DADOS que chegam:
+//  E definir se as seguintes variaveis são externas:
+//                  speedQueueHandle
+//                  speedMutexHandle
+//                  struct Vect3
 // --- Filas e mutexes ---
 // Fila para receber o target de velocidade (Speed)
 QueueHandle_t speedQueueHandle;
@@ -28,14 +33,16 @@ SemaphoreHandle_t ext_wheelCurrentMutexHandle;
    target e o ultimo valor lido.
    Elas estão no heap pois podem precisar ser acessadas por outras tarefas, como a de telemetria ou data logger.
    Elas estão protegidas por mutexes para evitar condições de corrida.
-    No Heap pois precisam ser lidas por multiplas tarefas e não entre duas tarefas.
+   No Heap pois precisam ser lidas por multiplas tarefas e não entre duas tarefas.
 */
 // Velocidade Atual das rodas
 static SpeedType_t _wheelSpeeds = {0}; // Velocidades das rodas
 // Corrente Atual das rodas
 static WheelSpeeds_t _wheelCurrents = {0}; // Correntes das rodas
 
-// Configurações das rodas
+// Configurações de cada roda
+// TODO: Ver quais configurações seram utilizadas e remover as não utilizadas
+// Aplicar também a estrutura WheelInfo
 #define WHEEL_A_CONFIG                                  \
     WheelInfo                                           \
     {                                                   \
@@ -72,7 +79,8 @@ static WheelSpeeds_t _wheelCurrents = {0}; // Correntes das rodas
 static WheelInfo wheelInfo[3] = {
     WHEEL_A_CONFIG,
     WHEEL_B_CONFIG,
-    WHEEL_C_CONFIG};
+    WHEEL_C_CONFIG
+};
 
 
 
@@ -327,4 +335,36 @@ WheelSpeeds_t GetWheelCurrents()
     // Libera o mutex de corrente para outras tarefas
     xSemaphoreGive(ext_wheelCurrentMutexHandle);
     return currents;
+}
+
+// Funcoes auxiliares para Vect3
+// TODO: Check Math
+
+Vect3 Vect3dot(Vect3 *v1, Vect3 *v2)
+{
+    Vect3 result;
+    result.x = v1->x * v2->x;
+    result.y = v1->y * v2->y;
+    result.phi = v1->phi * v2->phi;
+    return result;
+}
+
+
+
+Vect3 Vect3cross(Vect3 *v1, Vect3 *v2)
+{
+    Vect3 result;
+    result.x = v1->y * v2->phi - v1->phi * v2->y;
+    result.y = v1->phi * v2->x - v1->x * v2->phi;
+    result.phi = v1->x * v2->y - v1->y * v2->x;
+    return result;
+}
+
+Vect3 Mat_3_3crossVect3(float m[3][3], Vect3 *v)
+{
+    Vect3 result;
+    result.x = m[0][0] * v->x + m[0][1] * v->y + m[0][2] * v->phi;
+    result.y = m[1][0] * v->x + m[1][1] * v->y + m[1][2] * v->phi;
+    result.phi = m[2][0] * v->x + m[2][1] * v->y + m[2][2] * v->phi;
+    return result;
 }
