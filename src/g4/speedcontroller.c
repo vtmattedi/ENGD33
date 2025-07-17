@@ -74,6 +74,8 @@ static WheelInfo wheelInfo[3] = {
     WHEEL_B_CONFIG,
     WHEEL_C_CONFIG};
 
+
+
 // --- Prototypes internos ---
 // Foward declarations
 static float readEncoderSpeed(TIM_HandleTypeDef *htim);
@@ -82,10 +84,10 @@ static void setMotorPWM(uint8_t channel, float pwm);
 static void SpeedControlTask(void *argument);
 static void CurrentControlTask(void *argument);
 
-
-
-    /// @brief Tarefa de inicialização do controlador de velocidade e corrente.
+/// @brief Tarefa de inicialização do controlador de velocidade e corrente.
 /// Inicializa as filas, mutexes e tarefas do controlador de velocidade e corrente.
+/// @note Essa Função deve ser ANTES de acionar o escalonador e APÓS a inicialização do sistema,
+/// ela, e as tasks inicializadas por ela assumem que os pinos, timers, PWM e ADC estão corretamente configurados e prontos para uso.
 void SpeedController_Init(void)
 {
     // Inicialização das filas e mutexes
@@ -96,20 +98,20 @@ void SpeedController_Init(void)
     speedQueueHandle = xQueueCreate(QUEUE_LENGTH, sizeof(SpeedType_t));
     wheelCurrentQueueHandle = xQueueCreate(QUEUE_LENGTH, sizeof(WheelSpeeds_t));
     // Inicialização das tarefas
-    xTaskCreate(SpeedControlTask, /* Pointer para a task */
-                "SpeedControl", /* Nome da task */
+    xTaskCreate(SpeedControlTask,                 /* Pointer para a task */
+                "SpeedControl",                   /* Nome da task */
                 SPEED_CONTROLLER_TASK_STACK_SIZE, /* Tamanho da pilha da task */
-                NULL, /* Argumento da task */
-                SPEED_CONTROLLER_TASK_PRIORITY, /* Prioridade da task */
-                &speedControlTaskHandle /* Handle da task */
-            );
-    xTaskCreate(CurrentControlTask, /* Pointer para a task */
-                "CurrentControl", /* Nome da task */
+                NULL,                             /* Argumento da task */
+                SPEED_CONTROLLER_TASK_PRIORITY,   /* Prioridade da task */
+                &speedControlTaskHandle           /* Handle da task */
+    );
+    xTaskCreate(CurrentControlTask,                /* Pointer para a task */
+                "CurrentControl",                  /* Nome da task */
                 TORQUE_CONTROLLER_TASK_STACK_SIZE, /* Tamanho da pilha da task */
-                NULL, /* Argumento da task */
-                TORQUE_CONTROLLER_TASK_PRIORITY, /* Prioridade da task */
-                &currentControlTaskHandle /* Handle da task */
-            );
+                NULL,                              /* Argumento da task */
+                TORQUE_CONTROLLER_TASK_PRIORITY,   /* Prioridade da task */
+                &currentControlTaskHandle          /* Handle da task */
+    );
 }
 
 // --- Tarefa de cálculo de velocidades das rodas ---
@@ -129,26 +131,40 @@ void SpeedControlTask(void *argument)
         {
             // Recebe o vetor alvo
             if (xQueueReceive(speedQueueHandle, &targetVect, 0) == pdTRUE)
-            {
                 ;
-            }
+
             xSemaphoreGive(speedMutexHandle);
         }
-        // Target: targetVect
-        // Input = readEncoderSpeed();
-        // Output = wheelSpeeds
+
+        while (xSemaphoreTake(ext_wheelSpeedMutexHandle, portMAX_DELAY) != pdTRUE)
+        {
+            vTaskDelay(pdMS_TO_TICKS(1)); // Espera até que o mutex esteja disponível
+            yield();                      // Permite que outras tarefas rodem
+            // watchdog();
+        }
 
         // Calcula as velocidades das rodas a partir do vetor alvo
         for (size_t i = 0; i < WHEELS_COUNT; i++)
         {
+            // Target: targetVect
+            // Input = readEncoderSpeed();
+            // Output = wheelSpeeds
+            // last = _wheelSpeeds[i]; // Último valor lido
             float targetSpeed = wheelSpeeds[i]; // Ajustar para w2 e w3 conforme necessário
             float real = readEncoderSpeed(wheelInfo[i].encoder_tim);
+            float last = _wheelSpeeds[i]; // Último valor lido
+            _wheelSpeeds[i] = real;       // Atualiza a ultima velocidade lida
             // Aplicar PID aqui
-
+            // TODO: Implementar o PID de velocidade
             float output = targetSpeed - real; // Simples controle proporcional
             wheelSpeeds[i] = output;           // Armazena a velocidade calculada
         }
 
+        // Atualiza as velocidades atuais das rodas
+        _wheelSpeeds = wheelSpeeds;                // Atualiza as velocidades atuais das rodas
+        xSemaphoreGive(ext_wheelSpeedMutexHandle); // Libera o mutex de velocidade para outras tarefas
+
+        // Envia as velocidades calculadas para a fila de corrente
         while (xSemaphoreTake(speedMutexHandle, 0) != pdTRUE)
         {
             vTaskDelay(pdMS_TO_TICKS(1)); // Espera até que o mutex esteja disponível
@@ -181,38 +197,38 @@ void CurrentControlTask(void *argument)
         // Espera até que a fila de velocidades esteja disponível
         if (xSemaphoreTake(currentMutexHandle, portMAX_DELAY) == pdTRUE)
         {
-            // Recebe as velocidades das rodas
-            if (xQueueReceive(currentQueueHandle, &wheelSpeeds, 0) == pdTRUE)
-            { // Libera a fila para outras tarefas
-                xSemaphoreGive(currentMutexHandle);
-                // Aplica o PID de corrente para cada roda
-                for (size_t i = 0; i < WHEELS_COUNT; i++)
-                {
-                    // APlicar PID de corrente aqui
-                    // target = wheelSpeeds[i]; Converter para corrente?
-                    // real = readMotorCurrent(wheelInfo[i].adc_channel);
-                    // output = pwm
-                    float target = wheelSpeeds[i]; // Ajustar para w2 e w3 conforme necessário
-                    float real = readMotorCurrent(wheelInfo[i].adc_channel);
-                    // Ver o ultimato valor de corrente
-                    // é xSem
-                    while (xSemaphoreTake(currentMutexHandle, portMAX_DELAY) != pdTRUE)
-                        ;
-
-                    _wheelCurrents[i] = real; // Atualiza a corrente lida
-
-                    // Aplicar PID aqui
-
-                    // Fake output
-                    float output = target - real; // Simples controle proporcional
-
-                    setMotorPWM(output >= 0 ? wheelInfo[i].pwm_channel_a : wheelInfo[i].pwm_channel_b, abs(output));
-                }
-            }
-            else
+            while (xQueueReceive(currentQueueHandle, &wheelSpeeds, 0) != pdTRUE)
             {
-                xSemaphoreGive(currentMutexHandle);
+                vTaskDelay(pdMS_TO_TICKS(1)); // Espera até que a fila esteja disponível
+                yield();                      // Permite que outras tarefas rodem
+                // watchdog();
             }
+            xSemaphoreGive(currentMutexHandle);
+            // Espera até que o mutex de ler a ultima corrente esteja disponível
+            while (xSemaphoreTake(ext_wheelCurrentMutexHandle, portMAX_DELAY) != pdTRUE)
+                ;
+            // Aplica o PID de corrente para cada roda
+            for (size_t i = 0; i < WHEELS_COUNT; i++)
+            {
+                // APlicar PID de corrente aqui
+                // target = wheelSpeeds[i]; Converter para corrente?
+                // real = readMotorCurrent(wheelInfo[i].adc_channel);
+                // last = _wheelCurrents[i]; // Último valor lido
+                // output = pwm
+                float target = wheelSpeeds[i]; // Ajustar para w2 e w3 conforme necessário
+                float real = readMotorCurrent(wheelInfo[i].adc_channel);
+                float last = _wheelCurrents[i]; // Último valor lido
+                _wheelCurrents[i] = real;       // Atualiza a ultima corrente lida
+
+                // Aplicar PID aqui
+                // TODO: Implementar o PID de corrente
+                // Fake output
+                float output = target - real; // Simples controle proporcional
+
+                // Envia o sinal PWM para o motor
+                setMotorPWM(output >= 0 ? wheelInfo[i].pwm_channel_a : wheelInfo[i].pwm_channel_b, abs(output));
+            }
+            xSemaphoreGive(ext_wheelCurrentMutexHandle); // Libera o mutex de corrente para outras tarefas
         }
 
         vTaskDelay(pdMS_TO_TICKS(TORQUE_CONTROLLER_TASK_MS));
@@ -225,6 +241,7 @@ void CurrentControlTask(void *argument)
 /// @return Velocidade do encoder em RPM.
 static float readEncoderSpeed(TIM_HandleTypeDef *htim)
 {
+    // TODO: Implementar A Leitura do encoder correntamente
     // Dummy, Rever o encoder
     static uint32_t last[3] = {0};
     uint8_t index = (htim == &htim3) ? 0 : (htim == &htim4) ? 1
@@ -243,6 +260,7 @@ static float readEncoderSpeed(TIM_HandleTypeDef *htim)
 /// @return Corrente do motor em Amperes.
 static float readMotorCurrent(uint32_t channel)
 {
+    // TODO: Confirmar a implementação do ADC
     // O ADC pelo que eu vi ta certo.
     ADC_ChannelConfTypeDef config = {0};
     config.Channel = channel;
@@ -266,6 +284,7 @@ static float readMotorCurrent(uint32_t channel)
 /// @note O PWM é invertido, pois o canal A é o normal e o canal B é o invertido.
 static void setMotorPWM(uint8_t channel, float pwm)
 {
+    // TODO: Implementar o PWM corretamente
     // Dummy, rever O PWM
 
     uint32_t pulse = (uint32_t)(fminf(fabsf(pwm), 100.0f) * htim1.Init.Period / 100.0f);
@@ -274,9 +293,9 @@ static void setMotorPWM(uint8_t channel, float pwm)
 }
 
 /// @brief Obtém as velocidades das rodas.
-/// @param wheelIndex Índice da roda (0-2) -> ver WHEEL_X_INDEX.
-/// @return Velocidades da roda.
-SpeedType_t GetWheelSpeeds(uint8_t wheelIndex)
+/// @return um SpeedType_t com a velocidade de cada roda.
+/// @note Ver os indexes WHEEL_X_INDEX.
+SpeedType_t GetWheelSpeeds()
 {
     SpeedType_t speeds = {0};
 
@@ -290,10 +309,11 @@ SpeedType_t GetWheelSpeeds(uint8_t wheelIndex)
     xSemaphoreGive(ext_wheelSpeedMutexHandle);
     return speeds;
 }
+
 /// @brief  Obtém as correntes das rodas.
-/// @param wheelIndex Índice da roda (0-2) -> ver WHEEL_X_INDEX.
-/// @return Correntes da roda.
-WheelSpeeds_t GetWheelCurrents(uint8_t wheelIndex)
+/// @return um SpeedType_t com a corrente de cada roda.
+/// @note Ver os indexes WHEEL_X_INDEX.
+WheelSpeeds_t GetWheelCurrents()
 {
     WheelSpeeds_t currents = {0};
     // Espera até que o mutex de corrente esteja disponível
