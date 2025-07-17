@@ -228,6 +228,12 @@ void CurrentControlTask(void *argument)
                 float last = _wheelCurrents[i]; // Último valor lido
                 _wheelCurrents[i] = real;       // Atualiza a ultima corrente lida
 
+                float p = target - real; // Erro proporcional
+                float d = (real - last) / TORQUE_CONTROLLER_TASK_MS; // Derivada do erro
+                static float i = 0; // Integral do erro (acumulada)
+                i += p * TORQUE_CONTROLLER_TASK_MS; // Atualiza a integral
+                float output = p * PID_CONSTANTS_CURRENT[Kp] + d * PID_CONSTANTS_CURRENT[Kd] + i * PID_CONSTANTS_CURRENT[Ki]; // Simples controle proporcional
+
                 // Aplicar PID aqui
                 // TODO: Implementar o PID de corrente
                 // Fake output
@@ -339,7 +345,6 @@ WheelSpeeds_t GetWheelCurrents()
 
 // Funcoes auxiliares para Vect3
 // TODO: Check Math
-
 Vect3 Vect3dot(Vect3 *v1, Vect3 *v2)
 {
     Vect3 result;
@@ -348,8 +353,6 @@ Vect3 Vect3dot(Vect3 *v1, Vect3 *v2)
     result.phi = v1->phi * v2->phi;
     return result;
 }
-
-
 
 Vect3 Vect3cross(Vect3 *v1, Vect3 *v2)
 {

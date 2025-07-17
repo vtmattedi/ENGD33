@@ -87,16 +87,9 @@ typedef struct
     float x;
     float y;
     float phi;
-    operator[uint8_t index]
-    {
-        if (index < 0 || index > 2)
-        {
-            __THROW std::out_of_range("Index out of range");
-        }
-        return (index == 0) ? x : (index == 1) ? y
-                                               : phi;
-    }
-} Vect3;
+} Vect3; 
+
+float vect3[3] = {0.0f, 0.0f, 0.0f}; // Inicialização do vetor
 
 /// @brief Estrutura para armazenar informações de cada roda.
 typedef struct
