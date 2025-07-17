@@ -82,10 +82,17 @@ typedef struct {
 #define abs(x) ((x) < 0 ? -(x) : (x))
 #define SpeedType_t Vect3
 #define WheelSpeeds_t WheelSpeeds
+
 void SpeedController_Init(void);
-void SpeedControlTask(void *argument);
+
+/*
+    Expõe os Handles das Tasks de controle de velocidade e corrente
+    para que possam ser acessados por outras partes do código. (Caso precise)
+*/
+
+/// @brief Handle da tarefa de controle de velocidade
 extern xTaskHandle_t speedControlTaskHandle;
-void CurrentControlTask(void *argument);
+/// @brief Handle da tarefa de controle de corrente
 extern xTaskHandle_t currentControlTaskHandle;
 /* 
     Fn para obter velocidades e correntes das rodas

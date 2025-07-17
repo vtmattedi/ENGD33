@@ -35,13 +35,6 @@ static SpeedType_t _wheelSpeeds = {0}; // Velocidades das rodas
 // Corrente Atual das rodas
 static WheelSpeeds_t _wheelCurrents = {0}; // Correntes das rodas
 
-// --- Prototypes internos ---
-// Foward declarations
-static WheelSpeeds calculateWheelSpeeds(Vect3 vect);
-static float readEncoderSpeed(TIM_HandleTypeDef *htim);
-static float readMotorCurrent(uint32_t adc_channel);
-static void setMotorPWM(uint8_t motorIndex, float pwm);
-
 // Configurações das rodas
 #define WHEEL_A_CONFIG                                  \
     WheelInfo                                           \
@@ -81,7 +74,17 @@ static WheelInfo wheelInfo[3] = {
     WHEEL_B_CONFIG,
     WHEEL_C_CONFIG};
 
-/// @brief Tarefa de inicialização do controlador de velocidade e corrente.
+// --- Prototypes internos ---
+// Foward declarations
+static float readEncoderSpeed(TIM_HandleTypeDef *htim);
+static float readMotorCurrent(uint32_t adc_channel);
+static void setMotorPWM(uint8_t channel, float pwm);
+static void SpeedControlTask(void *argument);
+static void CurrentControlTask(void *argument);
+
+
+
+    /// @brief Tarefa de inicialização do controlador de velocidade e corrente.
 /// Inicializa as filas, mutexes e tarefas do controlador de velocidade e corrente.
 void SpeedController_Init(void)
 {
@@ -93,18 +96,20 @@ void SpeedController_Init(void)
     speedQueueHandle = xQueueCreate(QUEUE_LENGTH, sizeof(SpeedType_t));
     wheelCurrentQueueHandle = xQueueCreate(QUEUE_LENGTH, sizeof(WheelSpeeds_t));
     // Inicialização das tarefas
-    xTaskCreate(SpeedControlTask,
-                "SpeedControl",
-                SPEED_CONTROLLER_TASK_STACK_SIZE,
-                NULL,
-                SPEED_CONTROLLER_TASK_PRIORITY,
-                &speedControlTaskHandle);
-    xTaskCreate(CurrentControlTask,
-                "CurrentControl",
-                TORQUE_CONTROLLER_TASK_STACK_SIZE,
-                NULL,
-                TORQUE_CONTROLLER_TASK_PRIORITY,
-                &currentControlTaskHandle);
+    xTaskCreate(SpeedControlTask, /* Pointer para a task */
+                "SpeedControl", /* Nome da task */
+                SPEED_CONTROLLER_TASK_STACK_SIZE, /* Tamanho da pilha da task */
+                NULL, /* Argumento da task */
+                SPEED_CONTROLLER_TASK_PRIORITY, /* Prioridade da task */
+                &speedControlTaskHandle /* Handle da task */
+            );
+    xTaskCreate(CurrentControlTask, /* Pointer para a task */
+                "CurrentControl", /* Nome da task */
+                TORQUE_CONTROLLER_TASK_STACK_SIZE, /* Tamanho da pilha da task */
+                NULL, /* Argumento da task */
+                TORQUE_CONTROLLER_TASK_PRIORITY, /* Prioridade da task */
+                &currentControlTaskHandle /* Handle da task */
+            );
 }
 
 // --- Tarefa de cálculo de velocidades das rodas ---
