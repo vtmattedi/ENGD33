@@ -3,17 +3,12 @@
 #include "math.h"
 
 // --- Handles externos ---
-extern TIM_HandleTypeDef htim3; 
+extern TIM_HandleTypeDef htim3;
 extern TIM_HandleTypeDef htim4;
 extern TIM_HandleTypeDef htim5;
 extern ADC_HandleTypeDef hadc1;
 extern TIM_HandleTypeDef htim1;
 
-// TODO: A Nivel de projeto, Temos que confirmar os DADOS que chegam:
-//  E definir se as seguintes variaveis são externas:
-//                  speedQueueHandle
-//                  speedMutexHandle
-//                  struct Vect3
 // --- Filas e mutexes ---
 // Fila para receber o target de velocidade (Speed)
 QueueHandle_t speedQueueHandle;
@@ -41,7 +36,7 @@ static SpeedType_t _wheelSpeeds = {0}; // Velocidades das rodas
 static WheelSpeeds_t _wheelCurrents = {0}; // Correntes das rodas
 
 // Configurações de cada roda
-// TODO: Ver quais configurações seram utilizadas e remover as não utilizadas
+// TODO: Ver quais configurações seram utilizadas e remover as não utilizadas <-ultima coisa
 // Aplicar também a estrutura WheelInfo
 #define WHEEL_A_CONFIG                                  \
     WheelInfo                                           \
@@ -79,10 +74,7 @@ static WheelSpeeds_t _wheelCurrents = {0}; // Correntes das rodas
 static WheelInfo wheelInfo[3] = {
     WHEEL_A_CONFIG,
     WHEEL_B_CONFIG,
-    WHEEL_C_CONFIG
-};
-
-
+    WHEEL_C_CONFIG};
 
 // --- Prototypes internos ---
 // Foward declarations
@@ -99,12 +91,15 @@ static void CurrentControlTask(void *argument);
 void SpeedController_Init(void)
 {
     // Inicialização das filas e mutexes
-    vSemaphoreCreateBinary(speedMutexHandle);
-    vSemaphoreCreateBinary(currentMutexHandle);
-    vSemaphoreCreateBinary(ext_wheelSpeedMutexHandle);
-    vSemaphoreCreateBinary(ext_wheelCurrentMutexHandle);
+    vSemaphoreCreateBinary(speedMutexHandle);            // Semaphore para entrada de velocidade
+    vSemaphoreCreateBinary(currentMutexHandle);          // semaphore para entrada de corrente
+    vSemaphoreCreateBinary(ext_wheelSpeedMutexHandle);   // semaphore para velocidade atual
+    vSemaphoreCreateBinary(ext_wheelCurrentMutexHandle); // semaphore para corrente atual
+
+    // TODO: Verificar Tamanho das filas
     speedQueueHandle = xQueueCreate(QUEUE_LENGTH, sizeof(SpeedType_t));
     wheelCurrentQueueHandle = xQueueCreate(QUEUE_LENGTH, sizeof(WheelSpeeds_t));
+
     // Inicialização das tarefas
     xTaskCreate(SpeedControlTask,                 /* Pointer para a task */
                 "SpeedControl",                   /* Nome da task */
@@ -129,8 +124,9 @@ void SpeedController_Init(void)
 /// @param argument Argumento da tarefa (não utilizado).
 void SpeedControlTask(void *argument)
 {
-    SpeedType_t targetVect;
-    WheelSpeeds_t wheelSpeeds;
+    SpeedType_t input;
+    WheelSpeeds_t output;
+    static float integral[WHEELS_COUNT] = {0};
 
     for (;;)
     {
@@ -138,7 +134,7 @@ void SpeedControlTask(void *argument)
         if (xSemaphoreTake(speedMutexHandle, portMAX_DELAY) == pdTRUE)
         {
             // Recebe o vetor alvo
-            if (xQueueReceive(speedQueueHandle, &targetVect, 0) == pdTRUE)
+            if (xQueueReceive(speedQueueHandle, &input, 0) == pdTRUE)
                 ;
 
             xSemaphoreGive(speedMutexHandle);
@@ -154,22 +150,21 @@ void SpeedControlTask(void *argument)
         // Calcula as velocidades das rodas a partir do vetor alvo
         for (size_t i = 0; i < WHEELS_COUNT; i++)
         {
-            // Target: targetVect
-            // Input = readEncoderSpeed();
-            // Output = wheelSpeeds
+            // TODO: Checar PID principalmente Integral
+            // Target: input (RPS) 
+            // Input = readEncoderSpeed(RPS);
+            // Output = wheelSpeeds -> (RPS);
             // last = _wheelSpeeds[i]; // Último valor lido
-            float targetSpeed = wheelSpeeds[i]; // Ajustar para w2 e w3 conforme necessário
+            float target = input[i]; // Ajustar para w2 e w3 conforme necessário
             float real = readEncoderSpeed(wheelInfo[i].encoder_tim);
             float last = _wheelSpeeds[i]; // Último valor lido
             _wheelSpeeds[i] = real;       // Atualiza a ultima velocidade lida
             // Aplicar PID aqui
-            // TODO: Implementar o PID de velocidade
-            float output = targetSpeed - real; // Simples controle proporcional
-            wheelSpeeds[i] = output;           // Armazena a velocidade calculada
+            integral[i] += (target - real); // Integral do erro (acumulada)
+            output[i] = (target - real) * PID_CONSTANTS_SPEED[i][Kp] +
+                        integral[i] / SPEED_CONTROLLER_TASK_MS * PID_CONSTANTS_SPEED[i][Ki]; // Simples controle proporcional
         }
 
-        // Atualiza as velocidades atuais das rodas
-        _wheelSpeeds = wheelSpeeds;                // Atualiza as velocidades atuais das rodas
         xSemaphoreGive(ext_wheelSpeedMutexHandle); // Libera o mutex de velocidade para outras tarefas
 
         // Envia as velocidades calculadas para a fila de corrente
@@ -198,50 +193,43 @@ void SpeedControlTask(void *argument)
 /// @param argument Argumento da tarefa (não utilizado).
 void CurrentControlTask(void *argument)
 {
-    WheelSpeeds_t wheelSpeeds;
+    WheelSpeeds_t input;
+    WheelSpeeds_t lastCurrents = {0};
+    static float integral[WHEELS_COUNT] = {0};
 
     for (;;)
     {
         // Espera até que a fila de velocidades esteja disponível
         if (xSemaphoreTake(currentMutexHandle, portMAX_DELAY) == pdTRUE)
         {
-            while (xQueueReceive(currentQueueHandle, &wheelSpeeds, 0) != pdTRUE)
-            {
-                vTaskDelay(pdMS_TO_TICKS(1)); // Espera até que a fila esteja disponível
-                yield();                      // Permite que outras tarefas rodem
-                // watchdog();
-            }
             xSemaphoreGive(currentMutexHandle);
             // Espera até que o mutex de ler a ultima corrente esteja disponível
-            while (xSemaphoreTake(ext_wheelCurrentMutexHandle, portMAX_DELAY) != pdTRUE)
-                ;
+
             // Aplica o PID de corrente para cada roda
             for (size_t i = 0; i < WHEELS_COUNT; i++)
             {
                 // APlicar PID de corrente aqui
-                // target = wheelSpeeds[i]; Converter para corrente?
-                // real = readMotorCurrent(wheelInfo[i].adc_channel);
-                // last = _wheelCurrents[i]; // Último valor lido
-                // output = pwm
-                float target = wheelSpeeds[i]; // Ajustar para w2 e w3 conforme necessário
-                float real = readMotorCurrent(wheelInfo[i].adc_channel);
-                float last = _wheelCurrents[i]; // Último valor lido
-                _wheelCurrents[i] = real;       // Atualiza a ultima corrente lida
-
-                float p = target - real; // Erro proporcional
-                float d = (real - last) / TORQUE_CONTROLLER_TASK_MS; // Derivada do erro
-                static float i = 0; // Integral do erro (acumulada)
-                i += p * TORQUE_CONTROLLER_TASK_MS; // Atualiza a integral
-                float output = p * PID_CONSTANTS_CURRENT[Kp] + d * PID_CONSTANTS_CURRENT[Kd] + i * PID_CONSTANTS_CURRENT[Ki]; // Simples controle proporcional
+                // target = Saida da SpeedTask (RPS) -> precisa converter para corrente
+                // input = Corrente lida do ADC (Amperes)
+                // output = (Amperes) -> PWM
+                float target = input[i]; // Corrente alvo (Amperes)
+                // float target = input * alguma coisa RPM -> corrente alvo (Amperes)
+                float real = readMotorCurrent(wheelInfo[i].adc_channel); // Lê a corrente do motor
+                lastCurrents[i] = real;                                  // Atualiza a ultima corrente lida
+                integral[i] += real;
 
                 // Aplicar PID aqui
                 // TODO: Implementar o PID de corrente
                 // Fake output
-                float output = target - real; // Simples controle proporcional
-
+                float output = (target - real) * PID_CONSTANTS_CURRENT[i][Kp] +
+                               (lastCurrents[i] - real) * PID_CONSTANTS_CURRENT[i][Kd];
                 // Envia o sinal PWM para o motor
-                setMotorPWM(output >= 0 ? wheelInfo[i].pwm_channel_a : wheelInfo[i].pwm_channel_b, abs(output));
+                setMotorPWM(&wheelInfo[i], output);
             }
+            // Mantem a ultima corrente lida
+            while (xSemaphoreTake(ext_wheelCurrentMutexHandle, portMAX_DELAY) != pdTRUE)
+                ;
+            _wheelCurrents = lastCurrents;               // Atualiza as correntes atuais
             xSemaphoreGive(ext_wheelCurrentMutexHandle); // Libera o mutex de corrente para outras tarefas
         }
 
@@ -252,43 +240,42 @@ void CurrentControlTask(void *argument)
 // --- Leitura de encoder simples ---
 /// @brief Lê a velocidade do encoder associado ao timer.
 /// @param htim Ponteiro para o handle do timer associado ao encoder.
-/// @return Velocidade do encoder em RPM.
+/// @return Velocidade do encoder em RPS.
 static float readEncoderSpeed(TIM_HandleTypeDef *htim)
 {
-    // TODO: Implementar A Leitura do encoder correntamente
-    // Dummy, Rever o encoder
-    static uint32_t last[3] = {0};
-    uint8_t index = (htim == &htim3) ? 0 : (htim == &htim4) ? 1
-                                                            : 2;
-    uint32_t now = __HAL_TIM_GET_COUNTER(htim);
-    float delta = (int32_t)(now - last[index]);
-    last[index] = now;
-
-    float rpm = (delta * 6000.0f / 65536.0f); // ajuste conforme encoder
-    return rpm;
+    // Medida anterior é sempre 0
+    uint32_t count = __HAL_TIM_GET_COUNTER(htim); // Lê o contador do timer
+    __HAL_TIM_SET_COUNTER(htim, 0);               // Reseta o contador do timer para manter ele sempre 0
+    // Pulsos por revolução / Delta T
+    float speed = (count / PULSES_PER_REVOLUTION) / (SPEED_CONTROLLER_TASK_MS / 1000.0f); // Calcula a velocidade em RPS
+    // Checa se o timer está contando para baixo (velocidade negativa)
+    speed = __HAL_TIM_IS_TIM_COUNTING_DOWN(htim) ? -speed : speed; // Inverte a velocidade se o timer estiver contando para baixo
+    return speed;
 }
 
 // --- Leitura da corrente dos motores ---
 /// @brief Lê a corrente do motor a partir do canal ADC especificado.
 /// @param channel Canal ADC a ser lido.
 /// @return Corrente do motor em Amperes.
-static float readMotorCurrent(uint32_t channel)
+static float readMotorCurrent(uint8_t channel)
 {
-    // TODO: Confirmar a implementação do ADC
     // O ADC pelo que eu vi ta certo.
+    // Configura o canal ADC
+
     ADC_ChannelConfTypeDef config = {0};
-    config.Channel = channel;
-    config.Rank = 1;
-    config.SamplingTime = ADC_SAMPLETIME_112CYCLES;
-
-    HAL_ADC_ConfigChannel(&hadc1, &config);
-    HAL_ADC_Start(&hadc1);
-    HAL_ADC_PollForConversion(&hadc1, 10);
-    uint32_t raw = HAL_ADC_GetValue(&hadc1);
-    HAL_ADC_Stop(&hadc1);
-
-    float voltage = raw * 3.3f / 1023.0f;
-    return (voltage - 2.5f) / 0.1f;
+    config.Channel = channel;                       // Canal ADC a ser lido
+    config.Rank = 1;                                // Rank do canal ADC
+    config.SamplingTime = ADC_SAMPLETIME_112CYCLES; // Tempo de amostragem do ADC
+    HAL_ADC_ConfigChannel(&hadc1, &config);         // Configura o canal ADC
+    HAL_ADC_Start(&hadc1);                          // Inicia a conversão do ADC
+    HAL_ADC_PollForConversion(&hadc1, ADC_BITS);    // Polling para esperar a conversão do ADC
+    uint16_t raw = HAL_ADC_GetValue(&hadc1);        // Lê o valor do ADC
+    HAL_ADC_Stop(&hadc1);                           // Para a conversão do ADC
+    // Tensão : raw * 3.3V / 1023.0f
+    float voltage = raw * Voltage_REF / (float)((1 << ADC_BITS) - 1);
+    // Converter Tensão em Corrente (ACS_712) Tem um divisor de tensão 1:1
+    float amp = voltage * 2 /*Tensao No ACS_712*/ - 2.5f /*Offset*/ / 0.1f /*Sensibilidade do ACS_712 em V/A*/; // Corrente em Amperes
+    return amp;                                                                                                 // Retorna a corrente em Amperes
 }
 
 // --- PWM por motor ---
@@ -296,14 +283,14 @@ static float readMotorCurrent(uint32_t channel)
 /// @param channel Canal PWM a ser configurado.
 /// @param pwm Valor do PWM a ser configurado (0-100%).
 /// @note O PWM é invertido, pois o canal A é o normal e o canal B é o invertido.
-static void setMotorPWM(uint8_t channel, float pwm)
+static void setMotorPWM(WheelInfo *wheel, float value)
 {
+    // trasformar o valor recebido em Duty Cycle
+    // Enviar 0 para o canal A/B (dependendo do sinal)
+    // Enviar o Duty Cycle para o canal B/A (dependendo do sinal)
+    //
     // TODO: Implementar o PWM corretamente
     // Dummy, rever O PWM
-
-    uint32_t pulse = (uint32_t)(fminf(fabsf(pwm), 100.0f) * htim1.Init.Period / 100.0f);
-    __HAL_TIM_SET_COMPARE(&htim1, channel, pulse);
-    break;
 }
 
 /// @brief Obtém as velocidades das rodas.
@@ -341,33 +328,4 @@ WheelSpeeds_t GetWheelCurrents()
     // Libera o mutex de corrente para outras tarefas
     xSemaphoreGive(ext_wheelCurrentMutexHandle);
     return currents;
-}
-
-// Funcoes auxiliares para Vect3
-// TODO: Check Math
-Vect3 Vect3dot(Vect3 *v1, Vect3 *v2)
-{
-    Vect3 result;
-    result.x = v1->x * v2->x;
-    result.y = v1->y * v2->y;
-    result.phi = v1->phi * v2->phi;
-    return result;
-}
-
-Vect3 Vect3cross(Vect3 *v1, Vect3 *v2)
-{
-    Vect3 result;
-    result.x = v1->y * v2->phi - v1->phi * v2->y;
-    result.y = v1->phi * v2->x - v1->x * v2->phi;
-    result.phi = v1->x * v2->y - v1->y * v2->x;
-    return result;
-}
-
-Vect3 Mat_3_3crossVect3(float m[3][3], Vect3 *v)
-{
-    Vect3 result;
-    result.x = m[0][0] * v->x + m[0][1] * v->y + m[0][2] * v->phi;
-    result.y = m[1][0] * v->x + m[1][1] * v->y + m[1][2] * v->phi;
-    result.phi = m[2][0] * v->x + m[2][1] * v->y + m[2][2] * v->phi;
-    return result;
 }
