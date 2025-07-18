@@ -1,0 +1,22 @@
+Lista de TODOs:
+1. Checar PID (Velocidade) principalmente Integral mas a principio esta pronto.
+_Arquivo:_ speedcontroller.c _Linha:_ 149
+
+2. Implementar o PID de corrente:
+Precisamos converter a saida do PID de VELOCIDADE (RPS) para CORRENTE (Amperes)
+Acho que o PID em sí eh só isso: erro * Kp + integral * Ki;
+Além disso, o output desse PWM precisa ser enviado para o motor
+portanto o output precisa ser convertido para PWM
+pode ser em duty cycle (0-100%) ou em valor de PWM (0-255)
+_Arquivo:_ speedcontroller.c _Linha:_ 215
+
+3. Implementar o PWM:
+Trasformar o valor recebido em Duty Cycle
+Enviar 0 para o canal A/B (dependendo do sinal)
+Enviar o Duty Cycle para o canal B/A (dependendo do sinal)
+_Arquivo:_ speedcontroller.c _Linha:_ 285
+
+4. Verificar Qual Tamanho as filas devem ter:
+N vejo motivo para ser > 1 já que estamos passando 3 valores por objeto. botaria 2 ou deixaria 4 mesmo mas sla.
+Verificar também se o valor de ticks está bom para esperar ou se não importa.
+_Arquivo:_ speedcontroller.h _Linha:_ 80
