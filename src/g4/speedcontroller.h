@@ -124,22 +124,38 @@ typedef struct
     Kp, Ki e Kd para cada controle para cada roda.
 */
 
-#define PID_CONSTANTS_SPEED_A = {0.1f, 0.01f, 0.0f} // Kp, Ki, Kd para velocidade da roda A
-#define PID_CONSTANTS_SPEED_B = {0.1f, 0.01f, 0.0f} // Kp, Ki, Kd para velocidade da roda B
-#define PID_CONSTANTS_SPEED_C = {0.1f, 0.01f, 0.0f} // Kp, Ki, Kd para velocidade da roda C
-// Ki, Kp e Kd para o controle de velocidade de cada roda
-#define PID_CONSTANTS_SPEED = {PID_CONSTANTS_SPEED_A, PID_CONSTANTS_SPEED_B, PID_CONSTANTS_SPEED_C}
+#define PID_CONSTANTS_SPEED_A {0.1f, 0.01f, 0.0f} // Kp, Ki, Kd para velocidade da roda A
+#define PID_CONSTANTS_SPEED_B {0.1f, 0.01f, 0.0f} // Kp, Ki, Kd para velocidade da roda B
+#define PID_CONSTANTS_SPEED_C {0.1f, 0.01f, 0.0f} // Kp, Ki, Kd para velocidade da roda C
 
-#define PID_CONSTANTS_CURRENT_A = {0.1f, 0.01f, 0.0f} // Kp, Ki, Kd para corrente da roda A
-#define PID_CONSTANTS_CURRENT_B = {0.1f, 0.01f, 0.0f} // Kp, Ki, Kd para corrente da roda B
-#define PID_CONSTANTS_CURRENT_C = {0.1f, 0.01f, 0.0f} // Kp, Ki, Kd para corrente da roda C
-// Ki, Kp e Kd para o controle de corrente de cada roda
-#define PID_CONSTANTS_CURRENT = {PID_CONSTANTS_CURRENT_A, PID_CONSTANTS_CURRENT_B, PID_CONSTANTS_CURRENT_C}
+#define PID_CONSTANTS_CURRENT_A {0.1f, 0.01f, 0.0f} // Kp, Ki, Kd para corrente da roda A
+#define PID_CONSTANTS_CURRENT_B {0.1f, 0.01f, 0.0f} // Kp, Ki, Kd para corrente da roda B
+#define PID_CONSTANTS_CURRENT_C {0.1f, 0.01f, 0.0f} // Kp, Ki, Kd para corrente da roda C
+
 // exemplo:
 //  float saida_A = PID_CONSTANTS_SPEED[WHEEL_A_INDEX][Kp] * erro + PID_CONSTANTS_SPEED[WHEEL_A_INDEX][Ki] * integral;
 // Uso: PID_CONSTANTS_CURRENT[WHEEL_A_INDEX][Kp] = Kp para corrente da roda A
 // Uso: PID_CONSTANTS_SPEED[WHEEL_B_INDEX][Kd] = Kd para velocidade da roda B
 // Uso: PID_CONSTANTS_CURRENT[WHEEL_C_INDEX][Ki] = Ki para corrente da roda C
+
+// Definições de onde as constantes do PID serão armazenadas
+// Podemos armazenar as constantes do PID em RAM ou em Flash
+// Se os dois forem definidos, o compilador irá usar o que estiver definido por último
+
+#define PID_IN_RAM 0
+#define PID_IN_FLASH 1
+
+#ifdef PID_IN_RAM
+#define PID_LOCATION static
+#endif
+#ifdef PID_IN_FLASH
+#define PID_LOCATION const
+#endif
+// Se nenhum for definido, o compilador irá usar a RAM
+#ifndef PID_LOCATION
+#define PID_LOCATION static
+#endif // PID_LOCATION
+
 #pragma endregion
 
 // Definições de parametros físicos como Resolução do ADC, Tensão de referência, etc.
@@ -160,8 +176,10 @@ typedef struct
     Ver os indexes WHEEL_X_INDEX.
 */
 
-#define SpeedType_t float[WHEELS_COUNT]   // Tipo de dados utilizado para as velocidades das rodas
-#define CurrentType_t float[WHEELS_COUNT] // Tipo de dados utilizado para as correntes das rodas
+#define baseSpeedType_t float // Tipo base para as velocidades das rodas
+#define baseCurrentType_t float // Tipo base para as correntes das rodas
+#define SpeedType_t baseSpeedType_t[WHEELS_COUNT]   // Tipo de dados utilizado para as velocidades das rodas
+#define CurrentType_t baseCurrentType_t[WHEELS_COUNT] // Tipo de dados utilizado para as correntes das rodas
 
 #pragma endregion
 

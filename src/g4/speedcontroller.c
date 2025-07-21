@@ -21,6 +21,19 @@ SemaphoreHandle_t currentMutexHandle;
 SemaphoreHandle_t ext_wheelSpeedMutexHandle;
 // Semaphore para proteger o acesso às correntes das rodas (Libera a Corrente Externamente)
 SemaphoreHandle_t ext_wheelCurrentMutexHandle;
+/*
+    Constantes de PID para velocidade e corrente
+    Modificar no .h para alterar os valores das constantes
+*/
+PID_LOCATION baseCurrentType_t PID_CONSTANTS_SPEED[WHEELS_COUNT][3] = {
+    PID_CONSTANTS_SPEED_A,
+    PID_CONSTANTS_SPEED_B,
+    PID_CONSTANTS_SPEED_C};
+
+PID_LOCATION baseCurrentType_t PID_CONSTANTS_CURRENT[WHEELS_COUNT][3] = {
+    PID_CONSTANTS_CURRENT_A,
+    PID_CONSTANTS_CURRENT_B,
+    PID_CONSTANTS_CURRENT_C};
 
 /* Essas variáveis são usadas para armazenar as velocidades e correntes atuais das rodas
    Elas são atualizadas pelas tarefas de controle de velocidade e corrente para saber o delta entre o
@@ -71,13 +84,17 @@ static WheelInfo wheelInfo[3] = {
 // Foward declarations
 static float readEncoderSpeed(TIM_HandleTypeDef *htim);
 static float readMotorCurrent(uint8_t adc_channel);
-static void setMotorPWM(WheelInfo *wheel, float value) static void SpeedControlTask(void *argument);
+static void setMotorPWM(WheelInfo *wheel, baseCurrentType_t value);
+static void SpeedControlTask(void *argument);
 static void CurrentControlTask(void *argument);
+// Função de erro definida no main.c
+extern void Error_Handler(void);
 
 /// @brief Tarefa de inicialização do controlador de velocidade e corrente.
 /// Inicializa as filas, mutexes e tarefas do controlador de velocidade e corrente.
 /// @note Essa Função deve ser ANTES de acionar o escalonador e APÓS a inicialização do sistema,
 /// ela, e as tasks inicializadas por ela assumem que os pinos, timers, PWM e ADC estão corretamente configurados e prontos para uso.
+/// Além disso caso ela falhe em qualquer ponto, ela chama o Error_Handler() para tratar o erro.
 void SpeedController_Init(void)
 {
     // Inicialização das filas e mutexes
@@ -86,25 +103,68 @@ void SpeedController_Init(void)
     vSemaphoreCreateBinary(ext_wheelSpeedMutexHandle);   // semaphore para velocidade atual
     vSemaphoreCreateBinary(ext_wheelCurrentMutexHandle); // semaphore para corrente atual
 
-    // TODO: Verificar Tamanho das filas
     speedQueueHandle = xQueueCreate(QUEUE_LENGTH, sizeof(SpeedType_t));
     currentQueueHandle = xQueueCreate(QUEUE_LENGTH, sizeof(CurrentType_t));
+    // Se houver erro na criação das filas ou mutexes, chama o Error_Handler
+    if (speedQueueHandle == NULL || currentQueueHandle == NULL ||
+        speedMutexHandle == NULL || currentMutexHandle == NULL ||
+        ext_wheelSpeedMutexHandle == NULL || ext_wheelCurrentMutexHandle == NULL)
+    {
+        /*
+            Ver a criação das tasks abaixo.
+            set_error(QUEUE_ERROR); // Define um erro de fila
+        */
 
+        Error_Handler();
+    }
+
+    /* xTaskCreate retorna pdPASS em caso de sucesso e errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY em caso de falha
+     pdPASS é definido como 1 e errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY é definido como -1
+     definida:   src\Middlewares\Third_Party\FreeRTOS\Source\include\projdefs.h
+     source: https://www.freertos.org/Documentation/02-Kernel/04-API-references/01-Task-creation/01-xTaskCreate
+    */
+    int8_t success = 1;
     // Inicialização das tarefas
-    xTaskCreate(SpeedControlTask,                 /* Pointer para a task */
-                "SpeedControl",                   /* Nome da task */
-                SPEED_CONTROLLER_TASK_STACK_SIZE, /* Tamanho da pilha da task */
-                NULL,                             /* Argumento da task */
-                SPEED_CONTROLLER_TASK_PRIORITY,   /* Prioridade da task */
-                &speedControlTaskHandle           /* Handle da task */
+    success *= xTaskCreate(SpeedControlTask,                 /* Pointer para a task */
+                           "SpeedControl",                   /* Nome da task */
+                           SPEED_CONTROLLER_TASK_STACK_SIZE, /* Tamanho da pilha da task */
+                           NULL,                             /* Argumento da task */
+                           SPEED_CONTROLLER_TASK_PRIORITY,   /* Prioridade da task */
+                           &speedControlTaskHandle           /* Handle da task */
     );
-    xTaskCreate(CurrentControlTask,                /* Pointer para a task */
-                "CurrentControl",                  /* Nome da task */
-                TORQUE_CONTROLLER_TASK_STACK_SIZE, /* Tamanho da pilha da task */
-                NULL,                              /* Argumento da task */
-                TORQUE_CONTROLLER_TASK_PRIORITY,   /* Prioridade da task */
-                &currentControlTaskHandle          /* Handle da task */
+    success *= xTaskCreate(CurrentControlTask,                /* Pointer para a task */
+                           "CurrentControl",                  /* Nome da task */
+                           TORQUE_CONTROLLER_TASK_STACK_SIZE, /* Tamanho da pilha da task */
+                           NULL,                              /* Argumento da task */
+                           TORQUE_CONTROLLER_TASK_PRIORITY,   /* Prioridade da task */
+                           &currentControlTaskHandle          /* Handle da task */
     );
+
+    if (success != pdPASS)
+    {
+        // Se houver erro na criação das tarefas, chama o Error_Handler
+        /*
+            Seria interessante verificar onde ocorreu o erro, mas não tem um sistema definido no projeto.
+            E criar tal sistema foge do escopo do projeto.
+            if (!speedControlTaskHandle)
+            {
+                set_error(SPEED_CONTROL_TASK_ERROR);
+            }
+            if (!currentControlTaskHandle)
+            {
+                set_error(CURRENT_CONTROL_TASK_ERROR);
+            }
+            void set_error(int error_code)
+            {
+                error |= error_code; // adiciona o erro ao bitmask
+            }
+            void clear_error(int error_code)
+            {
+                error &= ~error_code; // remove o erro do bitmask
+            }
+        */
+        Error_Handler();
+    }
 }
 
 // --- Tarefa de cálculo de velocidades das rodas ---
@@ -114,28 +174,22 @@ void SpeedController_Init(void)
 /// @param argument Argumento da tarefa (não utilizado).
 void SpeedControlTask(void *argument)
 {
-    SpeedType_t target_rpm;                    // target de velocidade (RPS) vindo externamente da fila
+    static SpeedType_t target_rps; // target de velocidade (RPS) vindo externamente da fila
     // Tem que ser mesmo tipo da fila de corrente.
-    SpeedType_t output_rpm;                  // Saída de velocidade (RPS) para a fila de corrente
+    static SpeedType_t output_rps;             // Saída de velocidade (RPS) para a fila de corrente
     static float integral[WHEELS_COUNT] = {0}; // Integral do erro para cada roda.
-    // Não precisa ser estático (heap) -> verificar.
 
     for (;;)
     {
-        // TODO: Rever a logica dos dos mutexes e filas (Vitor)
-        // tem que rever a logica também na outra task
-        // (Vitor) -> Feito falta descrever a mudança:
-        /*
-            xTakeSemaphore é uma macro que:
-            - Espera até que o semáforo esteja disponível por no maximo (MUTEX_TIMEOUT_TICKS) ticks
-            - Dorme por (MUTEX_DELAY_TICKS) ticks para evitar busy waiting
-            - repete até que o semáforo esteja disponível
-
-        */
 
         // Espera até que a fila do input de velocidade esteja disponível
         xTakeSemaphore(speedMutexHandle);
-        xQueueReceive(speedQueueHandle, &target_rpm, QUEUE_MAX_WAIT_TICKS);
+        if (!xQueueIsQueueEmpty(speedQueueHandle))
+        {
+            // Recebe o vetor de velocidade (RPS) da fila de velocidade
+            // Se a fila estiver vazia continua com o valor anterior
+            xQueueReceive(speedQueueHandle, &target_rps, QUEUE_MAX_WAIT_TICKS);
+        }
         xSemaphoreGive(speedMutexHandle); // Libera o mutex da fila do input de velocidade
 
         // Espera até que o mutex de velocidade atual esteja disponível
@@ -151,28 +205,31 @@ void SpeedControlTask(void *argument)
             // Output = Saida em RPS para a fila de corrente;
             // erro = set point - real;
             // delta = real - ultimo valor real lido;
-            float set_point = target_rpm[i]; 
-            float real = readEncoderSpeed(wheelInfo[i].encoder_tim); // Lê a velocidade usando o encoder
-            float delta = real - currentWheelSpeeds[i]; // Delta entre a velocidade lida e a ultima velocidade lida
-            currentWheelSpeeds[i] = real;            // Atualiza a ultima velocidade lida
+            baseSpeedType_t set_point = target_rps[i];
+            baseSpeedType_t real = (baseSpeedType_t)readEncoderSpeed(wheelInfo[i].encoder_tim); // Lê a velocidade usando o encoder
+            baseSpeedType_t delta = real - currentWheelSpeeds[i];                               // Delta entre a velocidade lida e a ultima velocidade lida
+            currentWheelSpeeds[i] = real;                                                       // Atualiza a ultima velocidade lida
             // Aplicar PID aqui
             // NOTA: Tirei o / SPEED_CONTROLLER_TASK_MS  pois é constante, portanto sera incorporado no PID
             // NOTA: Inclui o erro derivativo (Kd) para ficar completo. se Não formos usar,
             // podemos seta Kd = 0
             integral[i] += (set_point - real); // Integral do erro (acumulada)
-            output_rpm[i] = (set_point - real) * PID_CONSTANTS_SPEED[i][Kp] +
-                        integral[i] * PID_CONSTANTS_SPEED[i][Ki] +
-                        delta * PID_CONSTANTS_SPEED[i][Kd];
+            output_rps[i] = (set_point - real) * PID_CONSTANTS_SPEED[i][Kp] +
+                            integral[i] * PID_CONSTANTS_SPEED[i][Ki] +
+                            delta * PID_CONSTANTS_SPEED[i][Kd];
         }
 
         xSemaphoreGive(ext_wheelSpeedMutexHandle); // Libera o mutex de velocidade para outras tarefas
-
-        // Envia as velocidades calculadas para a fila de corrente
-        xTakeSemaphore(currentMutexHandle);
-        // Aqui a QUEUE_MAX_WAIT_TICKS é multiplicado por 2 pois estamos enviando para uma tarefa com mais prioridade.
-        xQueueSend(currentQueueHandle, &output_rpm, QUEUE_MAX_WAIT_TICKS * 2);
+        
+        xTakeSemaphore(currentMutexHandle); // Espera até que o mutex de corrente esteja disponível
+        if (xQueueSend(currentQueueHandle, &output_rps, QUEUE_MAX_WAIT_TICKS ) != pdTRUE)
+        {
+            // Se a fila estiver cheia, podemos lidar com isso aqui
+            // Por exemplo, podemos descartar a mensagem ou tentar novamente mais tarde
+        }
         xSemaphoreGive(currentMutexHandle);
 
+        // Espera o tempo da tarefa de controle de velocidade
         vTaskDelay(pdMS_TO_TICKS(SPEED_CONTROLLER_TASK_MS));
     }
 }
@@ -184,14 +241,26 @@ void SpeedControlTask(void *argument)
 /// @param argument Argumento da tarefa (não utilizado).
 void CurrentControlTask(void *argument)
 {
-    SpeedType_t input_rpm;                    // target de corrente (Amperes) vindo externamente da fila
-    static float integral[WHEELS_COUNT] = {0}; // Integral do erro para cada roda.
+    /*
+        static vs não:
+        static: Heap
+        não static: Stack
+        As duas podem ser usadas pois a tarefa é executada em loop infinito
+        A diferença é que no heap, talvez seja mais eficiente pois diminui o tamanho do stack
+    */
+    static SpeedType_t input_rps;                          // target de corrente (Amperes) vindo externamente da fila
+    static baseCurrentType_t integral[WHEELS_COUNT] = {0}; // Integral do erro para cada roda.
 
     for (;;)
     {
         // Espera até que a fila de corrente esteja disponível
         xTakeSemaphore(currentMutexHandle);
-        xQueueReceive(currentQueueHandle, &input_rpm, QUEUE_MAX_WAIT_TICKS);
+        // Recebe o vetor de velocidade (RPS) da fila de corrente
+        // Se a fila estiver vazia continua com o valor anterior
+        if (!xQueueIsQueueEmpty(currentQueueHandle))
+        {
+            xQueueReceive(currentQueueHandle, &input_rps, QUEUE_MAX_WAIT_TICKS);
+        }
         xSemaphoreGive(currentMutexHandle); // Libera o mutex da fila de corrente
         // Espera até que o mutex de corrente atual esteja disponível
         xTakeSemaphore(ext_wheelCurrentMutexHandle);
@@ -204,13 +273,12 @@ void CurrentControlTask(void *argument)
             // target (ou set point) = Saida da SpeedTask (RPS) -> precisa converter para corrente
             // input (ou valor real) = Corrente lida do ADC (Amperes)
             // output = (Amperes) -> PWM
-            float set_point = target_rpm[i]; // Corrente alvo (Amperes)
+            baseCurrentType_t set_point = input_rps[i]; // Corrente alvo (Amperes)
             // ! CONVERTER A VELOCIDADE PARA CORRENTE !
             // float target = input * alguma coisa RPM -> corrente alvo (Amperes)
-            float real = readMotorCurrent(wheelInfo[i].adc_channel); // Lê a corrente do motor
-            float delta = real - currentWheelCurrents[i];            // Delta entre a corrente lida e a ultima corrente lida
-            currentWheelCurrents[i] = real;                          // Atualiza a ultima corrente lida
-
+            baseCurrentType_t real = (baseCurrentType_t)readMotorCurrent(wheelInfo[i].adc_channel); // Lê a corrente do motor
+            baseCurrentType_t delta = (real - currentWheelCurrents[i]) / SPEED_CONTROLLER_TASK_MS;  // Delta entre a corrente lida e a ultima corrente lida
+            currentWheelCurrents[i] = real;                                                         // Atualiza a ultima corrente lida
             integral[i] += real;
             // TODO: Implementar o PID de corrente
             // Precisamos converter a saida do PID de VELOCIDADE (RPS) para CORRENTE (Amperes)
@@ -218,9 +286,9 @@ void CurrentControlTask(void *argument)
             // Além disso, o output desse PWM precisa ser enviado para o motor
             // portanto o output precisa ser convertido para PWM
             // pode ser em duty cycle (0-100%) ou em valor de PWM (0-255)
-            float output = (target - real) * PID_CONSTANTS_CURRENT[i][Kp] +
-                           (lastCurrents[i] - real) * PID_CONSTANTS_CURRENT[i][Kd] +
-                           delta * PID_CONSTANTS_CURRENT[i][Ki];
+            baseCurrentType_t output = (set_point - real) * PID_CONSTANTS_CURRENT[i][Kp] +
+                                       (lastCurrents[i] - real) * PID_CONSTANTS_CURRENT[i][Kd] +
+                                       delta * PID_CONSTANTS_CURRENT[i][Ki];
             // Envia o sinal PWM para o motor
 
             setMotorPWM(&wheelInfo[i], output);
@@ -245,7 +313,6 @@ static float readEncoderSpeed(TIM_HandleTypeDef *htim)
     speed = __HAL_TIM_IS_TIM_COUNTING_DOWN(htim) ? -speed : speed; // Inverte a velocidade se o timer estiver contando para baixo
     return speed;
 }
-
 
 /// @brief Lê a corrente do motor a partir do canal ADC especificado.
 /// @param channel Canal ADC a ser lido.
@@ -275,7 +342,7 @@ static float readMotorCurrent(uint8_t channel)
 /// @param channel Canal PWM a ser configurado.
 /// @param pwm Valor do PWM a ser configurado (0-100%).
 /// @note O PWM é invertido, pois o canal A é o normal e o canal B é o invertido.
-static void setMotorPWM(WheelInfo *wheel, float value)
+static void setMotorPWM(WheelInfo *wheel, baseCurrentType_t value)
 {
     // trasformar o valor recebido em Duty Cycle
     // Enviar 0 para o canal A/B (dependendo do sinal)
@@ -307,5 +374,5 @@ CurrentType_t GetWheelCurrents()
     xTakeSemaphore(ext_wheelCurrentMutexHandle);
     currents = currentWheelCurrents;
     xSemaphoreGive(ext_wheelCurrentMutexHandle);
-    return currents;    
+    return currents;
 }
