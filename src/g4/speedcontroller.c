@@ -177,8 +177,8 @@ void SpeedControlTask(void *argument)
     static SpeedType_t target_rps; // target de velocidade (RPS) vindo externamente da fila
     // Tem que ser mesmo tipo da fila de corrente.
     static SpeedType_t output_rps;             // Saída de velocidade (RPS) para a fila de corrente
-    static float integral[WHEELS_COUNT] = {0}; // Integral do erro para cada roda.
-
+    static baseSpeedType_t integral[WHEELS_COUNT] = {0}; // Integral do erro para cada roda.
+    static baseSpeedType_t _currentWheelSpeeds[WHEELS_COUNT] = {0}; // Velocidades das rodas atual (ultima leitura)
     for (;;)
     {
 
@@ -192,9 +192,7 @@ void SpeedControlTask(void *argument)
         }
         xSemaphoreGive(speedMutexHandle); // Libera o mutex da fila do input de velocidade
 
-        // Espera até que o mutex de velocidade atual esteja disponível
-        xTakeSemaphore(ext_wheelSpeedMutexHandle);
-
+      
         // Aqui ja temos os dados da fila se precisar e
         // Calcula as velocidades das rodas a partir do vetor alvo
         for (size_t i = 0; i < WHEELS_COUNT; i++)
@@ -207,18 +205,25 @@ void SpeedControlTask(void *argument)
             // delta = real - ultimo valor real lido;
             baseSpeedType_t set_point = target_rps[i];
             baseSpeedType_t real = (baseSpeedType_t)readEncoderSpeed(wheelInfo[i].encoder_tim); // Lê a velocidade usando o encoder
-            baseSpeedType_t delta = real - currentWheelSpeeds[i];                               // Delta entre a velocidade lida e a ultima velocidade lida
-            currentWheelSpeeds[i] = real;                                                       // Atualiza a ultima velocidade lida
+            _currentWheelSpeeds[i] = real;                                                       // Atualiza a ultima velocidade lida
             // Aplicar PID aqui
             // NOTA: Tirei o / SPEED_CONTROLLER_TASK_MS  pois é constante, portanto sera incorporado no PID
             // NOTA: Inclui o erro derivativo (Kd) para ficar completo. se Não formos usar,
             // podemos seta Kd = 0
             integral[i] += (set_point - real); // Integral do erro (acumulada)
             output_rps[i] = (set_point - real) * PID_CONSTANTS_SPEED[i][Kp] +
-                            integral[i] * PID_CONSTANTS_SPEED[i][Ki] +
-                            delta * PID_CONSTANTS_SPEED[i][Kd];
+                            integral[i] * PID_CONSTANTS_SPEED[i][Ki];
         }
-
+        
+        // Espera até que o mutex de velocidade atual esteja disponível
+        xTakeSemaphore(ext_wheelSpeedMutexHandle);
+        {
+            // Copia as velocidades atuais para a variável externa
+            for (size_t i = 0; i < WHEELS_COUNT; i++)
+            {
+                _currentWheelSpeeds[i] = _currentWheelSpeeds[i];
+            }
+        }
         xSemaphoreGive(ext_wheelSpeedMutexHandle); // Libera o mutex de velocidade para outras tarefas
         
         xTakeSemaphore(currentMutexHandle); // Espera até que o mutex de corrente esteja disponível
@@ -250,10 +255,9 @@ void CurrentControlTask(void *argument)
     */
     static SpeedType_t input_rps;                          // target de corrente (Amperes) vindo externamente da fila
     static baseCurrentType_t integral[WHEELS_COUNT] = {0}; // Integral do erro para cada roda.
-
+    static baseCurrentType_t _currentWheelCurrents[WHEELS_COUNT] = {0}; // Correntes das rodas atual (ultima leitura)
     for (;;)
     {
-        // Espera até que a fila de corrente esteja disponível
         xTakeSemaphore(currentMutexHandle);
         // Recebe o vetor de velocidade (RPS) da fila de corrente
         // Se a fila estiver vazia continua com o valor anterior
@@ -263,9 +267,7 @@ void CurrentControlTask(void *argument)
         }
         xSemaphoreGive(currentMutexHandle); // Libera o mutex da fila de corrente
         // Espera até que o mutex de corrente atual esteja disponível
-        xTakeSemaphore(ext_wheelCurrentMutexHandle);
-        // Aqui ja temos os dados da fila se houver e temos o controle sobre o mutex da variavel corrente atual
-
+        
         // Aplica o PID de corrente para cada roda
         for (size_t i = 0; i < WHEELS_COUNT; i++)
         {
@@ -277,9 +279,8 @@ void CurrentControlTask(void *argument)
             // ! CONVERTER A VELOCIDADE PARA CORRENTE !
             // float target = input * alguma coisa RPM -> corrente alvo (Amperes)
             baseCurrentType_t real = (baseCurrentType_t)readMotorCurrent(wheelInfo[i].adc_channel); // Lê a corrente do motor
-            baseCurrentType_t delta = (real - currentWheelCurrents[i]) / SPEED_CONTROLLER_TASK_MS;  // Delta entre a corrente lida e a ultima corrente lida
-            currentWheelCurrents[i] = real;                                                         // Atualiza a ultima corrente lida
-            integral[i] += real;
+            _currentWheelCurrents[i] = real;                                                         // Atualiza a ultima corrente lida
+            integral[i] += set_point - real; // Integral do erro (acumulada)
             // TODO: Implementar o PID de corrente
             // Precisamos converter a saida do PID de VELOCIDADE (RPS) para CORRENTE (Amperes)
             // Acho que o PID em sí eh só isso: erro * Kp + integral * Ki;
@@ -287,13 +288,18 @@ void CurrentControlTask(void *argument)
             // portanto o output precisa ser convertido para PWM
             // pode ser em duty cycle (0-100%) ou em valor de PWM (0-255)
             baseCurrentType_t output = (set_point - real) * PID_CONSTANTS_CURRENT[i][Kp] +
-                                       (lastCurrents[i] - real) * PID_CONSTANTS_CURRENT[i][Kd] +
-                                       delta * PID_CONSTANTS_CURRENT[i][Ki];
+                                        integral[i] * PID_CONSTANTS_CURRENT[i][Ki];
+            
+            
             // Envia o sinal PWM para o motor
-
             setMotorPWM(&wheelInfo[i], output);
         }
-
+        xTakeSemaphore(ext_wheelCurrentMutexHandle);
+        for (size_t i = 0; i < WHEELS_COUNT; i++)
+        {
+            // Copia as correntes atuais para a variável externa
+           _currentWheelCurrents[i] = currentWheelCurrents[i];
+        }
         xSemaphoreGive(ext_wheelCurrentMutexHandle); // Libera o mutex de corrente para outras tarefas
         vTaskDelay(pdMS_TO_TICKS(TORQUE_CONTROLLER_TASK_MS));
     }
@@ -334,7 +340,8 @@ static float readMotorCurrent(uint8_t channel)
     // Tensão : raw * 3.3V / 1023.0f
     float voltage = raw * Voltage_REF / (float)((1 << ADC_BITS) - 1);
     // Converter Tensão em Corrente (ACS_712) Tem um divisor de tensão 1:1
-    float amp = voltage * 2 /*Tensao No ACS_712*/ - 2.5f /*Offset*/ / 0.1f /*Sensibilidade do ACS_712 em V/A*/; // Corrente em Amperes
+    // corrente = (tensão lida * divisor de tensão - offset) / sensibilidade
+    float amp = (voltage * ACS_VOLTAGE_DIVISOR - ACS_712_OFFSET) / ACS_712_SENSITIVITY; // Corrente em Amperes
     return amp;                                                                                                 // Retorna a corrente em Amperes
 }
 
@@ -349,6 +356,9 @@ static void setMotorPWM(WheelInfo *wheel, baseCurrentType_t value)
     // Enviar o Duty Cycle para o canal B/A (dependendo do sinal)
     //
     // TODO: Implementar o PWM
+    int positive = value >= 0; // Verifica se o valor é positivo ou negativo
+    uint32_t duty_cycle = (uint32_t)(abs(value) * 100 / 255); // Converte o valor para Duty Cycle (0-100%)
+
 }
 
 /// @brief Obtém as velocidades das rodas.

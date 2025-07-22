@@ -165,6 +165,12 @@ typedef struct
 #define Voltage_REF 3.3f           // Tensão de referência do ADC
 #define PULSES_PER_REVOLUTION 1000 // Pulsos por revolução do encoder
 
+// Definições do ACS_712 (30a)
+
+#define ACS_712_SENSITIVITY 0.066f // Sensibilidade do ACS_712 em V/A (0.066V/A)
+#define ACS_712_OFFSET 2.5f      // Offset do ACS_712 em V (2.5V)
+#define ACS_VOLTAGE_DIVISOR 2.0f // Divisor de tensão do ACS_712 (1:1)
+
 #pragma endregion
 
 // Definições dos tipos de dados para as velocidades e correntes das rodas
@@ -184,7 +190,7 @@ typedef struct
 #pragma endregion
 
 // Assinaturas das funções e variáveis expostas para outras partes do código
-#pragma region Funções e Variaveis Expostas
+#pragma region Funções e Variaveis Expostas Explicitamente
 /*
     Expõe os Handles das Tasks de controle de velocidade e corrente
     para que possam ser acessados por outras partes do código. (Caso precise)
