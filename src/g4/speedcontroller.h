@@ -31,6 +31,8 @@
 
 */
 
+#define WHEEL_PWM_TIM htim1
+
 // Roda 1:
 #define WHEEL_A_ADC_CHANNEL ADC_1_IN_4
 #define WHEEL_A_PWM_CHANNEL_A TIM_1_CHANNEL_1
@@ -124,13 +126,13 @@ typedef struct
     Kp, Ki e Kd para cada controle para cada roda.
 */
 
-#define PID_CONSTANTS_SPEED_A {0.1f, 0.01f, 0.0f} // Kp, Ki, Kd para velocidade da roda A
-#define PID_CONSTANTS_SPEED_B {0.1f, 0.01f, 0.0f} // Kp, Ki, Kd para velocidade da roda B
-#define PID_CONSTANTS_SPEED_C {0.1f, 0.01f, 0.0f} // Kp, Ki, Kd para velocidade da roda C
+#define PID_CONSTANTS_SPEED_A {0.1f, 0.01f } // Kp, Ki, Kd para velocidade da roda A
+#define PID_CONSTANTS_SPEED_B {0.1f, 0.01f } // Kp, Ki, Kd para velocidade da roda B
+#define PID_CONSTANTS_SPEED_C {0.1f, 0.01f } // Kp, Ki, Kd para velocidade da roda C
 
-#define PID_CONSTANTS_CURRENT_A {0.1f, 0.01f, 0.0f} // Kp, Ki, Kd para corrente da roda A
-#define PID_CONSTANTS_CURRENT_B {0.1f, 0.01f, 0.0f} // Kp, Ki, Kd para corrente da roda B
-#define PID_CONSTANTS_CURRENT_C {0.1f, 0.01f, 0.0f} // Kp, Ki, Kd para corrente da roda C
+#define PID_CONSTANTS_CURRENT_A {0.1f, 0.01f } // Kp, Ki, Kd para corrente da roda A
+#define PID_CONSTANTS_CURRENT_B {0.1f, 0.01f } // Kp, Ki, Kd para corrente da roda B
+#define PID_CONSTANTS_CURRENT_C {0.1f, 0.01f } // Kp, Ki, Kd para corrente da roda C
 
 // exemplo:
 //  float saida_A = PID_CONSTANTS_SPEED[WHEEL_A_INDEX][Kp] * erro + PID_CONSTANTS_SPEED[WHEEL_A_INDEX][Ki] * integral;
@@ -161,6 +163,9 @@ typedef struct
 // Definições de parametros físicos como Resolução do ADC, Tensão de referência, etc.
 #pragma region Parametros Físicos
 
+#define RPS_TO_CURRENT 0.1f // Conversão de RPS para Amperes (corrente)
+#define CURRENT_TO_MOTOR_PERCENTAGE 1.0f // Conversão de Amperes para o Valor de PWM [-1,1]
+
 #define ADC_BITS 10                // Resolução do ADC (10 bits)
 #define Voltage_REF 3.3f           // Tensão de referência do ADC
 #define PULSES_PER_REVOLUTION 1000 // Pulsos por revolução do encoder
@@ -170,6 +175,8 @@ typedef struct
 #define ACS_712_SENSITIVITY 0.066f // Sensibilidade do ACS_712 em V/A (0.066V/A)
 #define ACS_712_OFFSET 2.5f      // Offset do ACS_712 em V (2.5V)
 #define ACS_VOLTAGE_DIVISOR 2.0f // Divisor de tensão do ACS_712 (1:1)
+
+
 
 #pragma endregion
 

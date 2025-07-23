@@ -275,24 +275,22 @@ void CurrentControlTask(void *argument)
             // target (ou set point) = Saida da SpeedTask (RPS) -> precisa converter para corrente
             // input (ou valor real) = Corrente lida do ADC (Amperes)
             // output = (Amperes) -> PWM
-            baseCurrentType_t set_point = input_rps[i]; // Corrente alvo (Amperes)
-            // ! CONVERTER A VELOCIDADE PARA CORRENTE !
-            // float target = input * alguma coisa RPM -> corrente alvo (Amperes)
+            baseCurrentType_t set_point = input_rps[i] * RPS_TO_CURRENT; // Corrente alvo (Amperes)
+            // Convert RPS para corrente utilizando a constante de conversão
             baseCurrentType_t real = (baseCurrentType_t)readMotorCurrent(wheelInfo[i].adc_channel); // Lê a corrente do motor
             _currentWheelCurrents[i] = real;                                                         // Atualiza a ultima corrente lida
             integral[i] += set_point - real; // Integral do erro (acumulada)
-            // TODO: Implementar o PID de corrente
-            // Precisamos converter a saida do PID de VELOCIDADE (RPS) para CORRENTE (Amperes)
-            // Acho que o PID em sí eh só isso: erro * Kp + integral * Ki;
-            // Além disso, o output desse PWM precisa ser enviado para o motor
-            // portanto o output precisa ser convertido para PWM
-            // pode ser em duty cycle (0-100%) ou em valor de PWM (0-255)
+            // Controle PI da corrente (Torque) do motor
             baseCurrentType_t output = (set_point - real) * PID_CONSTANTS_CURRENT[i][Kp] +
                                         integral[i] * PID_CONSTANTS_CURRENT[i][Ki];
             
-            
+
+            float motor_value = output * CURRENT_TO_MOTOR_PERCENTAGE; // Valor do motor (PWM) a ser enviado
             // Envia o sinal PWM para o motor
-            setMotorPWM(&wheelInfo[i], output);
+            // motor_value deve ser entre -100 e 100
+            // com o sinal indicando a direção do motor
+            // e o valor indicando a intensidade em %
+            setMotorPWM(&wheelInfo[i], motor_value);
         }
         xTakeSemaphore(ext_wheelCurrentMutexHandle);
         for (size_t i = 0; i < WHEELS_COUNT; i++)
@@ -355,11 +353,12 @@ static void setMotorPWM(WheelInfo *wheel, baseCurrentType_t value)
     // Enviar 0 para o canal A/B (dependendo do sinal)
     // Enviar o Duty Cycle para o canal B/A (dependendo do sinal)
     //
-    // TODO: Implementar o PWM
     int positive = value >= 0; // Verifica se o valor é positivo ou negativo
-    uint32_t duty_cycle = (uint32_t)(abs(value) * 100 / 255); // Converte o valor para Duty Cycle (0-100%)
-
+    uint16_t duty_cycle = (uint16_t)(abs(value) * 100 / 255); // Converte o valor para Duty Cycle (0-100%)
+    __HAL_TIM_SET_COMPARE(&WHEEL_PWM_TIM, positive ? wheel->pwm_channel_a : wheel->pwm_channel_b, duty_cycle);
+    __HAL_TIM_SET_COMPARE(&WHEEL_PWM_TIM, positive ? wheel->pwm_channel_b : wheel->pwm_channel_a, 0);
 }
+
 
 /// @brief Obtém as velocidades das rodas.
 /// @return um SpeedType_t com a velocidade de cada roda.
