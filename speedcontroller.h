@@ -3,7 +3,6 @@
 #ifndef SPEEDCONTROLLER_H
 #define SPEEDCONTROLLER_H
 
-// TODO: Verificar os includes no projeto CUBE IDE (Final do projeto)
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
@@ -79,7 +78,7 @@ typedef struct
 #define TORQUE_CONTROLLER_TASK_MS 2
 // Tamanho da fila para as velocidades e correntes
 // TODO: verificar tamanho da fila e ticks de espera para obter 
-#define QUEUE_LENGTH 4
+#define QUEUE_LENGTH 2 // Tamanho da fila (2 elementos)
 #define QUEUE_MAX_WAIT_TICKS 100 // Tempo máximo de espera para a fila (em ticks)
 #define MUTEX_TIMEOUT_TICKS 100  // Tempo máximo de espera para o mutex (em ticks)
 #define MUTEX_DELAY_TICKS 1      // Tempo de delay para esperar o mutex (em ticks)
@@ -163,7 +162,7 @@ typedef struct
 // Definições de parametros físicos como Resolução do ADC, Tensão de referência, etc.
 #pragma region Parametros Físicos
 
-#define RPS_TO_CURRENT 0.1f // Conversão de RPS para Amperes (corrente)
+#define RPS_TO_CURRENT 1.0f // Conversão de RPS para Amperes (corrente)
 #define CURRENT_TO_MOTOR_PERCENTAGE 1.0f // Conversão de Amperes para o Valor de PWM [-1,1]
 
 #define ADC_BITS 10                // Resolução do ADC (10 bits)
@@ -191,8 +190,21 @@ typedef struct
 
 #define baseSpeedType_t float // Tipo base para as velocidades das rodas
 #define baseCurrentType_t float // Tipo base para as correntes das rodas
-#define SpeedType_t baseSpeedType_t[WHEELS_COUNT]   // Tipo de dados utilizado para as velocidades das rodas
-#define CurrentType_t baseCurrentType_t[WHEELS_COUNT] // Tipo de dados utilizado para as correntes das rodas
+// 
+typedef struct speedQueueItem
+{
+    baseSpeedType_t data[WHEELS_COUNT];
+};
+
+typedef struct currentQueueItem
+{
+    baseCurrentType_t data[WHEELS_COUNT];
+};
+
+#define SpeedType_t speedQueueItem // Tipo de dados utilizado para as velocidades das rodas
+#define CurrentType_t currentQueueItem // Tipo de dados utilizado para as correntes das rodas
+
+
 
 #pragma endregion
 
@@ -215,8 +227,9 @@ extern xTaskHandle_t currentControlTaskHandle;
     IE. DataLogger, Telemetria, etc.
 */
 
-SpeedType_t GetWheelSpeeds();
-CurrentType_t GetWheelCurrents();
+void setWheelSpeeds(baseSpeedType_t speeds[]);
+void GetWheelSpeeds(SpeedType_t *output);
+void GetWheelCurrents(CurrentType_t *output);
 
 #pragma endregion
 
