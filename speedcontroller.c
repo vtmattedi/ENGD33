@@ -179,6 +179,8 @@ void SpeedController_Init(void)
 /// @param argument Argumento da tarefa (não utilizado).
 void SpeedControlTask(void *argument)
 {
+    // Provavelmente não precisam ser static
+
     static SpeedType_t target_rps; // target de velocidade (RPS) vindo externamente da fila
     // Tem que ser mesmo tipo da fila de corrente.
     static SpeedType_t output_rps;             // Saída de velocidade (RPS) para a fila de corrente
@@ -251,13 +253,6 @@ void SpeedControlTask(void *argument)
 /// @param argument Argumento da tarefa (não utilizado).
 void CurrentControlTask(void *argument)
 {
-    /*
-        static vs não:
-        static: Heap
-        não static: Stack
-        As duas podem ser usadas pois a tarefa é executada em loop infinito
-        A diferença é que no heap, talvez seja mais eficiente pois diminui o tamanho do stack
-    */
     static SpeedType_t input_rps;                          // target de corrente (Amperes) vindo externamente da fila
     static baseCurrentType_t integral[WHEELS_COUNT] = {0}; // Integral do erro para cada roda.
     static baseCurrentType_t _currentWheelCurrents[WHEELS_COUNT] = {0}; // Correntes das rodas atual (ultima leitura)
