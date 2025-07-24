@@ -8,19 +8,24 @@ extern TIM_HandleTypeDef htim5; // Handle do Timer 5 (Encoder  Motor 3)
 extern ADC_HandleTypeDef hadc1; // Handle do ADC 1
 extern TIM_HandleTypeDef htim1; // Handle do Timer 1 (PWM)
 
+// --- Handles das Tasks ---
+
+xTaskHandle_t currentControlTaskHandle; // Handle da tarefa de controle de corrente
+xTaskHandle_t speedControlTaskHandle; // Handle da tarefa de controle de velocidade
+
 // --- Filas e mutexes ---
 // Fila para receber o target de velocidade (Speed)
-QueueHandle_t speedQueueHandle;
+static QueueHandle_t speedQueueHandle;
 // Fila para enviar/receber as correntes das rodas (Torque)
-QueueHandle_t currentQueueHandle;
+static QueueHandle_t currentQueueHandle;
 // Semaphore para proteger o acesso aos vetores (Speed)
-SemaphoreHandle_t speedMutexHandle;
+static SemaphoreHandle_t speedMutexHandle;
 // Semaphore para proteger o acesso às correntes (Torque)
-SemaphoreHandle_t currentMutexHandle;
+static SemaphoreHandle_t currentMutexHandle;
 // Semaphore para proteger o acesso às velocidades das rodas (Libera a Velocidade Externamente)
-SemaphoreHandle_t ext_wheelSpeedMutexHandle;
+static SemaphoreHandle_t ext_wheelSpeedMutexHandle;
 // Semaphore para proteger o acesso às correntes das rodas (Libera a Corrente Externamente)
-SemaphoreHandle_t ext_wheelCurrentMutexHandle;
+static SemaphoreHandle_t ext_wheelCurrentMutexHandle;
 /*
     Constantes de PID para velocidade e corrente
     Modificar no .h para alterar os valores das constantes
