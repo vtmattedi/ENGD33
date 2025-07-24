@@ -179,8 +179,10 @@ void SpeedControlTask(void *argument)
     static SpeedType_t output_rps;             // Saída de velocidade (RPS) para a fila de corrente
     static baseSpeedType_t integral[WHEELS_COUNT] = {0}; // Integral do erro para cada roda.
     static baseSpeedType_t _currentWheelSpeeds[WHEELS_COUNT] = {0}; // Velocidades das rodas atual (ultima leitura)
+    // tempo em que a tarefa foi chamada pela ultima vez
     for (;;)
     {
+        TickType_t xLastWakeTime = xTaskGetTickCount();
         // Espera até que a fila do input de velocidade esteja disponível
         xTakeSemaphore(speedMutexHandle);
         if (!xQueueIsQueueEmpty(speedQueueHandle))
@@ -233,7 +235,7 @@ void SpeedControlTask(void *argument)
         xSemaphoreGive(currentMutexHandle);
 
         // Espera o tempo da tarefa de controle de velocidade
-        vTaskDelay(pdMS_TO_TICKS(SPEED_CONTROLLER_TASK_MS));
+        vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(SPEED_CONTROLLER_TASK_MS));
     }
 }
 
@@ -255,7 +257,8 @@ void CurrentControlTask(void *argument)
     static baseCurrentType_t integral[WHEELS_COUNT] = {0}; // Integral do erro para cada roda.
     static baseCurrentType_t _currentWheelCurrents[WHEELS_COUNT] = {0}; // Correntes das rodas atual (ultima leitura)
     for (;;)
-    {
+    {   
+        TickType_t xLastWakeTime = xTaskGetTickCount();
         xTakeSemaphore(currentMutexHandle);
         // Recebe o vetor de velocidade (RPS) da fila de corrente
         // Se a fila estiver vazia continua com o valor anterior
@@ -297,7 +300,7 @@ void CurrentControlTask(void *argument)
            currentWheelCurrents.data[i] = _currentWheelCurrents[i]; // Atualiza a corrente atual
         }
         xSemaphoreGive(ext_wheelCurrentMutexHandle); // Libera o mutex de corrente para outras tarefas
-        vTaskDelay(pdMS_TO_TICKS(TORQUE_CONTROLLER_TASK_MS));
+        vTaskDelayUntil(&xLastWakeTime, pdMS_TO_TICKS(TORQUE_CONTROLLER_TASK_MS));
     }
 }
 
