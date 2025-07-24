@@ -143,15 +143,28 @@ typedef struct
 // Podemos armazenar as constantes do PID em RAM ou em Flash
 // Se os dois forem definidos, o compilador irá usar o que estiver definido por último
 
+#define PID_MUTABLE 0 // Se > 0, as constantes do PID podem ser alteradas em tempo de execução.
 #define PID_IN_RAM 0
 #define PID_IN_FLASH 1
 
 #ifdef PID_IN_RAM
-#define PID_LOCATION static
+#if PID_MUTABLE
+#define PID_LOCATION static 
+#else
+#define PID_LOCATION static const
 #endif
+#endif
+
+
+
 #ifdef PID_IN_FLASH
-#define PID_LOCATION const
+#if PID_MUTABLE
+#warning "PID_MUTABLE não é suportado quando as constantes do PID estão em Flash. As constantes serão imutáveis."
 #endif
+#define PID_LOCATION static const
+#endif
+
+
 // Se nenhum for definido, o compilador irá usar a RAM
 #ifndef PID_LOCATION
 #define PID_LOCATION static

@@ -192,7 +192,7 @@ void SpeedControlTask(void *argument)
         TickType_t xLastWakeTime = xTaskGetTickCount();
         // Espera até que a fila do input de velocidade esteja disponível
         xTakeSemaphore(speedMutexHandle);
-        if (!xQueueIsQueueEmpty(speedQueueHandle))
+        if (uxQueueMessagesWaiting(speedQueueHandle) > 0)
         {
             // Recebe o vetor de velocidade (RPS) da fila de velocidade
             // Se a fila estiver vazia continua com o valor anterior
@@ -262,7 +262,7 @@ void CurrentControlTask(void *argument)
         xTakeSemaphore(currentMutexHandle);
         // Recebe o vetor de velocidade (RPS) da fila de corrente
         // Se a fila estiver vazia continua com o valor anterior
-        if (!xQueueIsQueueEmpty(currentQueueHandle))
+        if (uxQueueMessagesWaiting(currentQueueHandle) > 0)
         {
             xQueueReceive(currentQueueHandle, &input_rps, QUEUE_MAX_WAIT_TICKS);
         }
